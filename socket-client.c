@@ -68,6 +68,8 @@ void extractAddressAndPort(char *ipp, char **ip, int *port) {
  * Upon successful transfer the file returns 0 else it returns
  * a -ve number and sets errno to the error
  * 
+ * @param file - file to send.
+ * @param endpoint - ip[:port] to send file to.
  */
 int sendFile(char *file, char *endPoint) {
     #if defined(__WIN32) || defined (__WIN64)
@@ -86,7 +88,8 @@ int sendFile(char *file, char *endPoint) {
     sd = socket(PF_INET, SOCK_STREAM, 0);
     /* exit if socket was not created */
     if(sd == -1) {
-        /** Handle all the cases that may have have led to
+        /**
+         * Handle all the cases that may have have led to
          * this function failing
          */
         #if defined (__WIN32) || defined (__WIN64)
@@ -139,8 +142,7 @@ int sendFile(char *file, char *endPoint) {
      * server
      */
     if(connect(sd, (struct sockaddr*)(&remote), sizeof(struct sockaddr_in)) == -1) {
-        /* Value of -1 indicates an error */
-        
+        /* -1 == error */
         #if defined (__WIN32) || defined (__WIN64)
             errno = WSAGetLastError();
         #endif
@@ -154,11 +156,8 @@ int sendFile(char *file, char *endPoint) {
     char buf[bufSize];
     /* Read file chunks into buffer */
     size_t rd = 0;
-    while((rd = fread(buf, 1, bufSize, f))) {
-        /* test if end-of-file is reached */
-        if(feof(f)) {
-            break;
-        }
+    while(1) {
+        rd = fread(buf, 1, bufSize, f);
         /* test if an error occured during the reading */
         if(ferror(f)) {
             printError("Error reading file");
@@ -172,6 +171,10 @@ int sendFile(char *file, char *endPoint) {
             switch (errno) {
              default: printError("An error occured during the transfer");
             }
+        }
+        /* test if end-of-file is reached */
+        if(feof(f)) {
+            break;
         }
     }
     printf("File transfer complete closing files/sockets.\n");
@@ -211,73 +214,18 @@ void printHelp(char *path) {
  *  
  */
 int main(int argc, char **argv) {
-    /* 2 is the least number of arguments allowed*/
-    if(argc < 2) {
-        printHelp(argv[0]);
-        return 1;
-    }
-    /* Only valid if argument is -h/--help */
-    if(argc == 2) {
-        if(!strcmp(argv[1], "-h") || ! strcmp(argv[1], "--help")) {
-            printHelp(argv[0]);
-            return 0;
-        } else {
-            fprintf(stderr, "Invalid argument %s\n", argv[1]);
-            printHelp(argv[0]);
-            return 1;
-        }
-    }
+
     /* attempt to get values for -r & -f */
     char *ip = NULL;
     char *file = NULL;
-    char *arg;
-    for(int i = 1; i < argc; i++) {
-        arg = argv[i];
-        if(strncmp(arg, "-r", 2) == 0) {
-            /* support both -r <ip> & -r<ip> syntax */
-            if(arg[2] != 0) {
-                ip = arg+2;
-            } else {
-                /* error if next argument is an argument name */
-                if(*(argv[i+1]) == '-') {
-                    printError("No value given to -r\n");
-                } else {
-                    ip = argv[++i];
-                }
-            }
-        } else if (strcmp(arg, "--remote") == 0) {
-            if(*(argv[i+1]) == '-') {
-                printError("No value given to --remote\n");
-            } else {
-                ip = argv[++i];
-            }
-        } else if(strncmp(arg, "-f", 2) == 0) {
-            /* support both -f <path> & -f<path> syntax */
-            if(arg[2] != 0) {
-                file = arg+2;
-            } else {
-                /* error if next argument is an argument name */
-                if(*(argv[i+1]) == '-') {
-                    printError("No value given to -f\n");
-                } else {
-                    file = argv[++i];
-                }
-            }
-        } else if (strcmp(arg, "--file") == 0) {
-            if(*(argv[i+1]) == '-') {
-                printError("No value given to --file\n");
-            } else {
-                file = argv[++i];
-            }
-        } else if(strcmp(arg, "-h") == 0 || strcmp(arg, "--help")) {
-            printHelp(argv[0]);
-        } else {
-            /* Unknown argument names are ignored */
-            printf("Skipping unknown argument %s\n", arg);
-            /* If next argument is not an argument name then skip it */
-            if(*(argv[i+1]) != '-') {
-                i++;
-            }
+    char arg;
+    while((arg = getopt(argc, argv, "f:r:")) != -1) {
+        switch(arg) {
+            case 'r' : ip = optarg; break;
+            case 'f' : file = optarg; break;
+            case 'h' : printHelp(argv[0]); exit(0);
+            case ':' : printf("Missing value for -%c\n", optopt); exit(1);
+            case '?' : printf("unknown argument : %c\n", optopt);
         }
     }
     /* file == NULL | ip  == NULL if arguments were absent*/
@@ -285,7 +233,7 @@ int main(int argc, char **argv) {
         file == NULL ? printf("No file given.\n") : printf("No remote ip given.\n");
         goto notify;
     }
-
+    
     sendFile(file, ip);
     return 0;
 
